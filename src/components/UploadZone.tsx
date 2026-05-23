@@ -5,6 +5,7 @@ import { FileEntry } from "../types";
 
 interface UploadZoneProps {
   onUploadSuccess: (newFile: FileEntry) => void;
+  isLocalFallback?: boolean;
 }
 
 const loadPdfJs = (): Promise<any> => {
@@ -25,7 +26,7 @@ const loadPdfJs = (): Promise<any> => {
   });
 };
 
-export default function UploadZone({ onUploadSuccess }: UploadZoneProps) {
+export default function UploadZone({ onUploadSuccess, isLocalFallback = false }: UploadZoneProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -162,31 +163,77 @@ export default function UploadZone({ onUploadSuccess }: UploadZoneProps) {
         textContent = (fileResult as string).slice(0, 8000) || `Tài liệu văn bản mới từ file: ${file.name}. Chứa nội dung dạng thô.`;
       }
 
-      // Upload to backend API
-      const response = await fetch("/api/files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      let uploadedFile: FileEntry;
+
+      if (isLocalFallback) {
+        // Generate locally
+        uploadedFile = {
+          id: "local-file-" + Date.now().toString(),
           name: file.name,
           type: fileType,
           subType: subType,
           size: file.size,
+          uploadedAt: new Date().toISOString(),
           content: textContent,
           parsedData: parsedData,
           mimeType: file.type || "application/octet-stream",
           thumbnailUrl: subType === 'image' ? fileResult : undefined,
           duration: subType === 'audio' ? "02:18" : undefined
-        })
-      });
+        };
+        // Add to localStorage
+        const localFilesStr = localStorage.getItem("min_doc_vault_files");
+        const localFiles: FileEntry[] = localFilesStr ? JSON.parse(localFilesStr) : [];
+        localStorage.setItem("min_doc_vault_files", JSON.stringify([uploadedFile, ...localFiles]));
+        onUploadSuccess(uploadedFile);
+      } else {
+        // Try uploading to server
+        try {
+          const response = await fetch("/api/files", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: file.name,
+              type: fileType,
+              subType: subType,
+              size: file.size,
+              content: textContent,
+              parsedData: parsedData,
+              mimeType: file.type || "application/octet-stream",
+              thumbnailUrl: subType === 'image' ? fileResult : undefined,
+              duration: subType === 'audio' ? "02:18" : undefined
+            })
+          });
 
-      if (!response.ok) {
-        throw new Error("Lỗi tải tệp lên máy chủ lưu trữ.");
+          if (!response.ok) {
+            throw new Error("SERVER_FAIL");
+          }
+
+          uploadedFile = await response.json();
+          onUploadSuccess(uploadedFile);
+        } catch (apiErr) {
+          console.warn("Backend API not reachable. Falling back to local storage.", apiErr);
+          // Auto fallback to local storage
+          uploadedFile = {
+            id: "local-file-" + Date.now().toString(),
+            name: file.name,
+            type: fileType,
+            subType: subType,
+            size: file.size,
+            uploadedAt: new Date().toISOString(),
+            content: textContent,
+            parsedData: parsedData,
+            mimeType: file.type || "application/octet-stream",
+            thumbnailUrl: subType === 'image' ? fileResult : undefined,
+            duration: subType === 'audio' ? "02:18" : undefined
+          };
+          const localFilesStr = localStorage.getItem("min_doc_vault_files");
+          const localFiles: FileEntry[] = localFilesStr ? JSON.parse(localFilesStr) : [];
+          localStorage.setItem("min_doc_vault_files", JSON.stringify([uploadedFile, ...localFiles]));
+          onUploadSuccess(uploadedFile);
+        }
       }
 
-      const uploadedFile: FileEntry = await response.json();
-      onUploadSuccess(uploadedFile);
       setStatusMsg({ type: 'success', text: `Tải lên thành công: ${file.name}` });
-
       setTimeout(() => setStatusMsg(null), 4000);
 
     } catch (err: any) {
