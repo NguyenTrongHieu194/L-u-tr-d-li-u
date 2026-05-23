@@ -1,0 +1,6 @@
+{
+  "name": "AI File Hub & Insights Dashboard",
+  "description": "A dark-themed minimalist dashboard for managing and analyzing PDF, Word, Excel, and media files with Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
